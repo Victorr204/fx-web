@@ -1,28 +1,66 @@
 import { insforge } from "@/lib/insforge";
 import { Portfolio, Trade, Position } from "@/lib/types";
 
-export async function loadPortfolio(): Promise<Portfolio | null> {
-  const { data: user } = await insforge.auth.getCurrentUser();
-  if (!user?.user) return null;
+async function getCurrentUserId(): Promise<string | null> {
+  const { data, error } = await insforge.auth.getCurrentUser();
+  if (error || !data?.user) return null;
+  return data.user.id;
+}
 
-  const { data: portfolio } = await insforge.database
+export async function ensurePortfolio(): Promise<void> {
+  const userId = await getCurrentUserId();
+  if (!userId) return;
+
+  const { data: existing } = await insforge.database
+    .from("user_portfolios")
+    .select("id")
+    .eq("user_id", userId)
+    .limit(1);
+
+  if (existing && existing.length > 0) return;
+
+  const { error } = await insforge.database.from("user_portfolios").insert([
+    {
+      user_id: userId,
+      balance: 10000,
+      starting_balance: 10000,
+      total_pnl: 0,
+      win_count: 0,
+      loss_count: 0,
+      total_trades: 0,
+      active_strategy: "AI Momentum",
+    },
+  ]);
+
+  if (error) {
+    console.error("Failed to create portfolio:", error.message);
+  }
+}
+
+export async function loadPortfolio(): Promise<Portfolio | null> {
+  const userId = await getCurrentUserId();
+  if (!userId) return null;
+
+  const { data: portfolio, error: portfolioError } = await insforge.database
     .from("user_portfolios")
     .select("*")
-    .eq("user_id", user.user.id)
-    .single();
+    .eq("user_id", userId)
+    .limit(1);
 
-  if (!portfolio) return null;
+  if (portfolioError || !portfolio || portfolio.length === 0) return null;
+
+  const p = portfolio[0];
 
   const { data: trades } = await insforge.database
     .from("user_trades")
     .select("*")
-    .eq("user_id", user.user.id)
+    .eq("user_id", userId)
     .order("close_time", { ascending: false });
 
   const { data: positions } = await insforge.database
     .from("user_positions")
     .select("*")
-    .eq("user_id", user.user.id)
+    .eq("user_id", userId)
     .eq("status", "OPEN");
 
   const tradeHistory: Trade[] = (trades || []).map((t) => ({
@@ -55,32 +93,32 @@ export async function loadPortfolio(): Promise<Portfolio | null> {
   }));
 
   return {
-    balance: portfolio.balance,
-    startingBalance: portfolio.starting_balance,
-    totalPnl: portfolio.total_pnl,
-    totalPnlPercent: portfolio.starting_balance > 0
-      ? ((portfolio.balance - portfolio.starting_balance) / portfolio.starting_balance) * 100
+    balance: p.balance,
+    startingBalance: p.starting_balance,
+    totalPnl: p.total_pnl,
+    totalPnlPercent: p.starting_balance > 0
+      ? ((p.balance - p.starting_balance) / p.starting_balance) * 100
       : 0,
     openPositions,
     tradeHistory,
-    winCount: portfolio.win_count,
-    lossCount: portfolio.loss_count,
-    winRate: portfolio.total_trades > 0
-      ? (portfolio.win_count / portfolio.total_trades) * 100
+    winCount: p.win_count,
+    lossCount: p.loss_count,
+    winRate: p.total_trades > 0
+      ? (p.win_count / p.total_trades) * 100
       : 0,
-    totalTrades: portfolio.total_trades,
-    activeStrategy: portfolio.active_strategy,
+    totalTrades: p.total_trades,
+    activeStrategy: p.active_strategy,
   };
 }
 
 export async function savePortfolio(portfolio: Portfolio): Promise<void> {
-  const { data: user } = await insforge.auth.getCurrentUser();
-  if (!user?.user) return;
+  const userId = await getCurrentUserId();
+  if (!userId) return;
 
-  await insforge.database.from("user_portfolios").upsert(
+  const { error } = await insforge.database.from("user_portfolios").upsert(
     [
       {
-        user_id: user.user.id,
+        user_id: userId,
         balance: portfolio.balance,
         starting_balance: portfolio.startingBalance,
         total_pnl: portfolio.totalPnl,
@@ -93,15 +131,19 @@ export async function savePortfolio(portfolio: Portfolio): Promise<void> {
     ],
     { onConflict: "user_id" }
   );
+
+  if (error) {
+    console.error("Failed to save portfolio:", error.message);
+  }
 }
 
 export async function saveTrade(trade: Trade): Promise<void> {
-  const { data: user } = await insforge.auth.getCurrentUser();
-  if (!user?.user) return;
+  const userId = await getCurrentUserId();
+  if (!userId) return;
 
-  await insforge.database.from("user_trades").insert([
+  const { error } = await insforge.database.from("user_trades").insert([
     {
-      user_id: user.user.id,
+      user_id: userId,
       position_id: trade.id,
       type: trade.type,
       entry_price: trade.entryPrice,
@@ -115,21 +157,29 @@ export async function saveTrade(trade: Trade): Promise<void> {
       lesson: trade.lesson,
     },
   ]);
+
+  if (error) {
+    console.error("Failed to save trade:", error.message);
+  }
 }
 
 export async function saveOpenPositions(positions: Position[]): Promise<void> {
-  const { data: user } = await insforge.auth.getCurrentUser();
-  const userId = user?.user?.id;
+  const userId = await getCurrentUserId();
   if (!userId) return;
 
-  await insforge.database
+  const { error: closeError } = await insforge.database
     .from("user_positions")
     .update({ status: "CLOSED", updated_at: new Date().toISOString() })
     .eq("user_id", userId)
     .eq("status", "OPEN");
 
+  if (closeError) {
+    console.error("Failed to close positions:", closeError.message);
+    return;
+  }
+
   if (positions.length > 0) {
-    await insforge.database.from("user_positions").insert(
+    const { error: insertError } = await insforge.database.from("user_positions").insert(
       positions.map((p) => ({
         user_id: userId,
         position_id: p.id,
@@ -146,5 +196,9 @@ export async function saveOpenPositions(positions: Position[]): Promise<void> {
         status: "OPEN",
       }))
     );
+
+    if (insertError) {
+      console.error("Failed to insert positions:", insertError.message);
+    }
   }
 }

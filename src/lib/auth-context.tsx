@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { insforge } from "@/lib/insforge";
+import { ensurePortfolio } from "@/lib/persistence";
 
 interface AuthUser {
   id: string;
@@ -70,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: data.user.email,
         name: data.user.profile?.name,
       });
+      await ensurePortfolio();
     }
     return {};
   };
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: data.user.email,
         name: data.user.profile?.name,
       });
+      await ensurePortfolio();
     }
     return {};
   };
@@ -104,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: data.user.email,
         name: data.user.profile?.name,
       });
+      await ensurePortfolio();
     }
     return {};
   };
