@@ -61,8 +61,13 @@ export function CandlestickChart({ candles }: CandlestickChartProps) {
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
+    const toUnix = (t: string): number => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return Math.floor(new Date(t + "T00:00:00Z").getTime() / 1000);
+      return Math.floor(new Date(t.replace(" ", "T") + "Z").getTime() / 1000);
+    };
+
     const formattedData: CandlestickData<Time>[] = candles.map((c) => ({
-      time: c.time as unknown as Time,
+      time: toUnix(c.time) as unknown as Time,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -70,7 +75,7 @@ export function CandlestickChart({ candles }: CandlestickChartProps) {
     }));
 
     const volumeData: HistogramData<Time>[] = candles.map((c) => ({
-      time: c.time as unknown as Time,
+      time: toUnix(c.time) as unknown as Time,
       value: c.volume,
       color: c.close >= c.open ? "#10b98130" : "#ef444430",
     }));
@@ -100,8 +105,13 @@ export function CandlestickChart({ candles }: CandlestickChartProps) {
 
     const lastCandle = candles[candles.length - 1];
 
+    const toUnix = (t: string): number => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return Math.floor(new Date(t + "T00:00:00Z").getTime() / 1000);
+      return Math.floor(new Date(t.replace(" ", "T") + "Z").getTime() / 1000);
+    };
+
     candleSeriesRef.current.update({
-      time: lastCandle.time as unknown as Time,
+      time: toUnix(lastCandle.time) as unknown as Time,
       open: lastCandle.open,
       high: lastCandle.high,
       low: lastCandle.low,
